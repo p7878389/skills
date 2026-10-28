@@ -22,9 +22,11 @@ Codex 使用时还需让 `~/.codex/skills/worktree-dev-context` 指向该目录�
 
 ## 依赖与范围
 
+**必需依赖只有 Python 和 Git。Trellis、GitNexus、Zadig 均为可选集成，三者都未安装时核心 worktree 流程仍可独立使用。**
+
 - Python 3.9+、Git；合并预演需要 Git 2.38+。
-- Trellis 同步仅在项目使用 `.trellis` 时适用。
-- GitNexus 索引能力需要本地安装并配置 GitNexus；本仓库不附带该工具。
+- Trellis（可选）：项目使用 `.trellis` 时才同步，否则跳过相关步骤。
+- GitNexus（可选）：本地工具可用且需要索引分析时才使用；缺失时用文本检索、源码阅读和测试替代，不要求安装或建索引。
 - Zadig 部署是可选衔接，需要另外安装 `zadig-deploy` skill 并配置服务；本仓库不包含部署技能或凭据。未安装时跳过部署，不影响 worktree 和同步脚本。
 - 内含个人环境路径约定和 Claude Code/Codex 操作说明；其他系统应先检查路径、软链接与客户端支持情况。
 

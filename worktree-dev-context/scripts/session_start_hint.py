@@ -102,9 +102,10 @@ def main():
         f"[worktree-dev-context] 当前会话位于 git linked worktree：{root}（分支 {branch}），主仓库：{main_root}。\n"
         f"- Trellis：{trellis_state}；GitNexus 独立索引：{index_name or '未建立'}。\n"
         "- 其他 SessionStart 注入的 Trellis 分支/任务状态、GitNexus“落后 N 个提交”均以主仓库检出为准，不代表本 worktree。\n"
-        f"- 第一次读写代码前先加载 `worktree-dev-context` skill：执行 `python3 {S}/trellis_sync.py pull` 与 "
-        f"`python3 {S}/index_check.py`（写字面路径，不要用 shell 变量拼脚本路径），按 VERDICT 选定 GitNexus repo；"
-        "完成后回合 .trellis；仅在已授权集成/部署时按 skill 第 3 节收尾，普通提交不自动合并、删除或部署。"
+        f"- 第一次读写代码前先加载 `worktree-dev-context` skill：仅项目使用 Trellis 时执行 `python3 {S}/trellis_sync.py pull`；"
+        f"仅本地 GitNexus 可用且需要时执行 `python3 {S}/index_check.py` 并按 VERDICT 选定 repo。"
+        "Trellis、GitNexus、Zadig 均可选，未启用时跳过对应步骤，不影响核心 worktree 流程。"
+        "已带入 .trellis 才需回合；仅已授权且工具可用时执行集成/部署，普通提交不自动合并、删除或部署。"
     )
     if linked:
         context += (f"\n- 已把主仓库被忽略的 Agent 配置软链进本 worktree：{', '.join(linked)}。"

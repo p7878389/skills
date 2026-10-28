@@ -3,7 +3,17 @@ name: worktree-dev-context
 description: git worktree 开发全流程，Claude Code 与 Codex 通用：在主仓库检出中修改代码前，检查要改的文件是否正被同时修改，重叠时才改用 worktree 并按约定创建（简单修改原地做）；在 linked worktree（如 Claude Code 的 .claude/worktrees/*、Codex 托管的 worktree、git worktree add 出来的目录）中带入并回合被 .gitignore 忽略的 Trellis（.trellis）任务与 spec，判断并准备与 worktree 分支一致的 GitNexus 索引，按 feature/、fix/、hotfix/ 规范命名分支；需要集成或部署时，预演并核对目标后一次确认收尾；普通提交不自动进入部署流程。主仓库检出中开工前、第一次在 worktree 中读写代码前、代码提交后汇报完成前、删除 worktree 前都要用。
 ---
 
-# Worktree 开发上下文（Trellis + GitNexus）
+# Worktree 开发上下文
+
+## 核心能力与可选集成
+
+必需依赖只有 Git 和 Python 标准库。Trellis、GitNexus、Zadig 都不是前提；三者均未安装时，文件重叠检查、worktree 创建/复用、Agent 配置链接、合并预演和清理仍可独立使用。**以下各章节中的集成指令都受本节条件约束，包括开工、开发、收尾、删除前检查和 hook 提示。**
+
+- **Trellis（可选）**：项目使用 `.trellis` 时才执行带入、回合、状态检查及相关任务流程；没有 `.trellis` 时全部跳过。已带入的数据仍须妥善处理，不能将同步冲突当作“未启用”忽略。
+- **GitNexus（可选）**：本地工具可用且本次需要索引分析时才执行索引选择、构建、刷新及影响分析；否则用 `rg`、源码阅读和测试替代，不要求安装或建索引。仅清理实际创建的独立索引；工具失效时报告残留，不阻断普通 Git 操作。
+- **Zadig（可选）**：用户要求通过 Zadig 部署，且 `zadig-deploy` skill 与服务配置可用时才执行部署预演和部署。未启用时跳过部署，合并及清理可独立完成。明确要求部署但条件不具备时，说明部署步骤未完成，不擅自安装或配置。
+
+汇报和确认只展示实际适用的步骤，不因未安装可选工具而要求用户补齐依赖。
 
 ## 为什么需要
 
@@ -53,11 +63,11 @@ GitNexus 分工：日志排查与已推送代码的调用链优先用远程 `git
 
 0. **检查分支名**：worktree 当前分支不符合第 0 节“分支命名”规范时（例如 Claude Code 应用自动建的 `claude/<描述>-<hash>`），按任务性质定好 `feature/`、`fix/` 或 `hotfix/` 名称，在第一次提交前 `git branch -m <旧名> <新名>` 改名，并告知用户。分支已推送到远程时先问用户再改。
 1. **链接 Agent 配置**：`python3 ~/.claude/skills/worktree-dev-context/scripts/worktree_advise.py link`（幂等，`UP_TO_DATE` 表示无需处理）。用 `create` 建的或 SessionStart 时已处理过的会直接 `UP_TO_DATE`；Code tab、`EnterWorktree(name=…)`、Codex 等其他方式建的 worktree 靠这一步补齐。只链接主检出中被忽略、未跟踪且 worktree 缺失的 `.claude/*`（跳过 `.claude/worktrees`）、`.codex`、`.agents`、`.cursor`、`.opencode`、`.gemini`、`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`；worktree 已有的不动。会话启动时不存在的 project settings/agents 如仍未生效，告知用户重开会话。
-2. **带入 Trellis**：`python3 ~/.claude/skills/worktree-dev-context/scripts/trellis_sync.py pull`
+2. **带入 Trellis（仅项目使用时）**：`python3 ~/.claude/skills/worktree-dev-context/scripts/trellis_sync.py pull`
    - 复制主仓库 `.trellis`（含 `.runtime`，`task.py current` 才能沿用会话任务指针），并在 `$GIT_DIR/trellis-base` 建三方合并基线。worktree 已有 `.trellis` 时不覆盖。
    - 之后 `task.py`、`get_context.py`、spec 读取、子代理的 `Active task` 与项目路径都用 worktree 路径。
    - 先确认本次需求是否属于 `task.py current` 的任务：属于就沿用；不属于按 Trellis Request Triage 询问是否新建，不要默认记进主仓库当前任务。
-3. **选 GitNexus 索引**：`python3 ~/.claude/skills/worktree-dev-context/scripts/index_check.py <本次要分析/修改的文件或目录...>`，按最后一行 `VERDICT` 行动：
+3. **选 GitNexus 索引（仅本地工具可用且本次需要时）**：`python3 ~/.claude/skills/worktree-dev-context/scripts/index_check.py <本次要分析/修改的文件或目录...>`，按最后一行 `VERDICT` 行动：
    - `USE_WORKTREE <name>` / `USE_MAIN <name>`：MCP 调用一律传 `repo: "<name>"`；
    - `REFRESH <name>` / `BUILD <name>`：执行输出中的 `REFRESH_CMD` / `BUILD_CMD`（`--index-only --name <仓库>@wt-<分支>`，本仓库首次约 1 分钟、约 300MB，之后增量刷新秒级），完成后用 `<name>`；耗时长时放后台运行。
    - `RENAME_REQUIRED <name>`：已有索引重名，不可复用；按输出命令改名后重新检查。新索引名称附加分支名的稳定摘要，避免路径字符替换后碰撞。
@@ -100,7 +110,7 @@ GitNexus 分工：日志排查与已推送代码的调用链优先用远程 `git
 5. 使用 dry-run 的完整命令加 `--expect-plan <部署 PLAN_SHA256> --yes --watch`。任何摘要不匹配都重新预演，不自动读取新摘要并直接重试。部署失败后停止，不自动重试或回滚，报告 task_id、页面 URL 与失败状态。
 6. 汇报任务分支发布状态、集成提交、Trellis 写回、清理状态及部署结果。主检出原地开发跳过 worktree 同步/清理；任务分支保留供后续 MR 使用。
 
-### 3.4 回合 Trellis
+### 3.4 回合 Trellis（仅已带入时）
 
 1. `python3 ~/.claude/skills/worktree-dev-context/scripts/trellis_sync.py merge` 预演（3.1 已做过且之后没再改 `.trellis` 时可略过）。
 2. `python3 ~/.claude/skills/worktree-dev-context/scripts/trellis_sync.py merge --apply` 写回：
@@ -117,7 +127,7 @@ GitNexus 分工：日志排查与已推送代码的调用链优先用远程 `git
 
 1. **前置检查**，任一不满足不删除；Trellis 待处理项同时阻断部署，其余情况按 3.3 处理：
    - `git -C <worktree> status --porcelain` 为空：没有未提交或未跟踪的改动；
-   - 3.4 已完成，`trellis_sync.py status` 无待合并项；
+   - 已带入 Trellis 时，3.4 已完成且 `trellis_sync.py status` 无待合并项；未使用时跳过；
    - 任务分支已推送且已合入集成分支（执行输出 `MERGED`/`UP_TO_DATE` 且 `TASK_BRANCH_PUBLISHED: yes`），或用户明确授权仅清理。合并一律走 `integrate`，不在本 worktree 里切换分支。
 2. **清理索引**：`gitnexus remove "<实际独立索引全名（含摘要）>" -f` 删除独立索引与注册项（`gitnexus list` 可查名称；没建过独立索引则跳过）。`$GIT_DIR/trellis-base` 随 worktree 一起删除，无需单独处理。
 3. **删除 worktree**：

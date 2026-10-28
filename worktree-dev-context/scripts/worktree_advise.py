@@ -331,7 +331,7 @@ def cmd_create(args):
     if linked:
         print(f"LINKED: {', '.join(linked)}")
     print("NEXT: Claude Code 用 EnterWorktree(path=上述路径) 切入；Codex 后续命令以该路径为 workdir、文件用绝对路径；"
-          "然后按 skill 第 1 节执行 trellis_sync.py pull 与 index_check.py（脚本写字面路径，不用 shell 变量）")
+          "然后按 skill 第 1 节按需执行 Trellis 同步和 GitNexus 索引检查；未使用/不可用时跳过（脚本写字面路径）")
 
 
 def agent_config_entries(main_root):
