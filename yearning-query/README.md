@@ -40,7 +40,7 @@
 |---|---|
 | `url` | Yearning 地址，内网地址直连、不走 `http_proxy` |
 | `username` / `password` | 登录账号；LDAP 账号同时设 `"ldap": true` |
-| `prefer_sources` | 可选，`{"prod": [...], "staging": [...]}`，各环境默认数据源（如只读副本），`locate-table` 会排在最前并标 `★默认` |
+| `prefer_sources` | 可选，`{"prod": [...], "staging": [...]}`，各环境默认数据源（如只读副本），条目写 `数据源` 或 `数据源/库`；`locate-table` 会排在最前并标 `★默认` |
 
 环境变量可覆盖配置：`YEARNING_URL`、`YEARNING_USERNAME`、`YEARNING_PASSWORD`、`YEARNING_LDAP`、`YEARNING_TOKEN`（直接使用网页登录后的 JWT）、`YEARNING_PROFILE`、`YEARNING_CONFIG`。登录后的 JWT 缓存在 `~/.config/yearning/.cache/`。
 

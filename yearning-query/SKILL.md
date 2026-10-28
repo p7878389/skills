@@ -15,7 +15,7 @@ description: 通过 Yearning（v3.0.x）SQL 审核平台对生产/测试数据�
 - 环境变量可覆盖：`YEARNING_URL`、`YEARNING_USERNAME`、`YEARNING_PASSWORD`、`YEARNING_LDAP`（LDAP 账号设为 true）、`YEARNING_TOKEN`（直接使用网页登录后的 JWT）、`YEARNING_PROFILE`、`YEARNING_CONFIG`。
 - 登录后 JWT 缓存在 `~/.config/yearning/.cache/`（服务端签发 8 小时有效），过期或 401 自动重新登录。
 - 内网地址直连，不走本机 `http_proxy`。
-- 可选 `prefer_sources`：`{"prod": ["数据源名"], "staging": [...]}`，标记各环境默认使用的数据源（如只读副本），`locate-table` 会把它们排在最前并标 `★默认`。
+- 可选 `prefer_sources`：`{"prod": ["数据源名"], "staging": ["数据源名/库名"]}`，标记各环境默认使用的数据源（如只读副本），条目写成 `数据源/库` 可精确到库；`locate-table` 会把它们排在最前并标 `★默认`。
 - 不要读取、打印或回显密码/token；确认配置用 `python3 ~/.claude/skills/yearning-query/scripts/yearning.py config`（已脱敏）。未配置时请用户自行编辑配置文件。
 
 ## 1. 标准流程
@@ -87,7 +87,7 @@ description: 通过 Yearning（v3.0.x）SQL 审核平台对生产/测试数据�
 
 1. **从日志取线索**：用 elk 工具（`elk_search` / `elk_trace`）拿到代表性的错误日志，提取**业务 ID**（诊所 ID、订单号、设备号、用户 ID 等，注意生产日志里手机号、身份证已被服务端脱敏，不能直接拿来查）和**时间窗口**。
 2. **确定表和字段**：不要凭字段名猜表。用 `code_locate` 片段，或 GitNexus `context`（远程模式传 `code_prepare` 返回的 `repo`）找到报错代码访问的 Mapper/Entity/SQL，确认表名、字段和查询条件；需要时再 `query --sql "SHOW CREATE TABLE <表>" --format vertical` 看索引。
-3. **确定数据源**：`locate-table <表名> --env <prod|staging>`。环境要和日志一致：ELK 的 prod 对应 `[prod]` 数据源，stag/staging 对应 `[staging]` 数据源；同一张表出现在多个数据源时，按服务的数据源配置（`application-<env>.yml` 中的库名）选；标 `★默认` 的是配置里 `prefer_sources` 指定的默认数据源（通常是只读副本），没有更明确依据时优先用它。拿不准时列出候选让用户确认。
+3. **确定数据源**：`locate-table <表名> --env <prod|staging>`。环境要和日志一致：ELK 的 prod 对应 `[prod]` 数据源，stag/staging 对应 `[staging]` 数据源；同一张表出现在多个数据源时，按服务的数据源配置（`application-<env>.yml` 中的库名）选；标 `★默认` 的是配置里 `prefer_sources` 指定的默认数据源/库（通常是只读副本），没有更明确依据时优先用它。拿不准时列出候选让用户确认。
 4. **查数据**：按主键/唯一键/索引列精确查询（`WHERE id IN (...)`），只取和问题相关的列；需要看变化过程时查对应的变更日志/历史表，并用时间窗口过滤。
 5. **合并结论**：把日志事实和数据事实对上，写明：ELK 环境与时间范围、Yearning 数据源/库、执行的 SQL、关键数据（已打码）、两者如何互相印证，以及代码位置与 commit。
 

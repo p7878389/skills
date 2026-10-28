@@ -780,7 +780,8 @@ def cmd_locate_table(client, args):
                 if name == want or (args.like and want in name):
                     hits.append((src["env"], src["source"], sid, schema, t))
     prefer = client.prof.get("prefer_sources") or {}
-    is_default = lambda h: h[1] in (prefer.get(h[0]) or [])  # noqa: E731
+    # 条目写数据源名，或「数据源/库」精确到库
+    is_default = lambda h: bool({h[1], "%s/%s" % (h[1], h[3])} & set(prefer.get(h[0]) or []))  # noqa: E731
     hits.sort(key=lambda h: (h[0] != "prod", not is_default(h), h[1], h[3], str(h[4])))
     age = int((time.time() - ts) / 60)
     print("表清单%s（%d 个数据源）" % ("来自 %d 分钟前的缓存，--refresh 刷新" % age if cached else "为实时读取",

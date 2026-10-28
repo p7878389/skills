@@ -286,6 +286,12 @@ class EndToEndTest(unittest.TestCase):
         code, out, _ = self.run_cli("locate-table", "t_user")
         self.assertIn("数据源=test-order  库=order_db  表=t_user  source_id=sid-2  ★默认", out)
         self.assertNotIn("sid-1  ★默认", out)
+        cfg["profiles"]["t"]["prefer_sources"] = {"prod": ["prod-order/other_db"], "staging": ["test-order/order_db"]}
+        with open(self.cfg, "w") as f:
+            json.dump(cfg, f)
+        code, out, _ = self.run_cli("locate-table", "t_user")
+        self.assertNotIn("sid-1  ★默认", out)
+        self.assertIn("sid-2  ★默认", out)
 
     def test_bad_password(self):
         with open(self.cfg, "w") as f:
