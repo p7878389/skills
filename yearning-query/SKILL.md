@@ -1,6 +1,6 @@
 ---
 name: yearning-query
-description: 通过 Yearning（v3.0.x）SQL 审核平台对生产/测试数据库执行只读 SQL 查询：列数据源、库、表，定位表所在数据源，分析并改写查询 SQL，经 Yearning 查询通道执行并整理结果；也用于 ELK 日志排查时核对业务数据。当用户提到"Yearning"、"SQL 平台"、"查一下生产库/线上数据"、"帮我写个 SQL 查…"、"执行这条 SQL"、"查某张表的数据/表结构"，或排查日志时需要"看下数据库里这条数据/这个订单/这个诊所的状态"时使用。
+description: 通过 Yearning（v3.0.x）SQL 审核平台对生产/测试数据库执行只读 SQL 查询：列数据源、库、表，定位表所在数据源，分析并改写查询 SQL，经 Yearning 查询通道执行并整理结果；也用于 ELK 日志排查时核对业务数据。当用户提到"Yearning"、"SQL 平台"、"查一下生产库/线上数据"、"帮我写个 SQL 查…"、"执行这条 SQL"、"查某张表的数据/表结构"，或排查日志时需要"看下数据库里这条数据/这个订单/这个诊所的状态"时使用。 Run read-only SQL against production or staging databases through the Yearning SQL audit platform - list data sources, schemas and tables, locate a table across data sources, review and rewrite SQL, execute it and summarize results; also used to verify business data during ELK log triage. Use when the user mentions Yearning, a SQL platform, querying the production database, running a SQL statement, looking up table data or table schema, or checking the state of a record, order or clinic while debugging logs.
 ---
 
 # Yearning 只读查询

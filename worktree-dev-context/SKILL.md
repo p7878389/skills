@@ -1,6 +1,6 @@
 ---
 name: worktree-dev-context
-description: git worktree 开发全流程，Claude Code 与 Codex 通用：在主仓库检出中修改代码前，检查要改的文件是否正被同时修改，重叠时才改用 worktree 并按约定创建（简单修改原地做）；在 linked worktree（如 Claude Code 的 .claude/worktrees/*、Codex 托管的 worktree、git worktree add 出来的目录）中带入并回合被 .gitignore 忽略的 Trellis（.trellis）任务与 spec，判断并准备与 worktree 分支一致的 GitNexus 索引，按 feature/、fix/、hotfix/ 规范命名分支；需要集成或部署时，预演并核对目标后一次确认收尾；普通提交不自动进入部署流程。主仓库检出中开工前、第一次在 worktree 中读写代码前、代码提交后汇报完成前、删除 worktree 前都要用。
+description: git worktree 开发全流程，Claude Code 与 Codex 通用：在主仓库检出中修改代码前，检查要改的文件是否正被同时修改，重叠时才改用 worktree 并按约定创建（简单修改原地做）；在 linked worktree（如 Claude Code 的 .claude/worktrees/*、Codex 托管的 worktree、git worktree add 出来的目录）中带入并回合被 .gitignore 忽略的 Trellis（.trellis）任务与 spec，判断并准备与 worktree 分支一致的 GitNexus 索引，按 feature/、fix/、hotfix/ 规范命名分支；需要集成或部署时，预演并核对目标后一次确认收尾；普通提交不自动进入部署流程。主仓库检出中开工前、第一次在 worktree 中读写代码前、代码提交后汇报完成前、删除 worktree 前都要用。 Git worktree workflow for Claude Code and Codex - switch to a worktree only when target files are being edited concurrently; in a linked worktree, sync git-ignored Trellis (.trellis) tasks and specs, prepare a matching GitNexus index, and use feature/, fix/, hotfix/ branch names; dry-run and confirm once before integration or deployment. Use before work in the main checkout, before first code access in a worktree, after committing, and before removing a worktree.
 ---
 
 # Worktree 开发上下文
