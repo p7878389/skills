@@ -1,0 +1,15 @@
+{
+  "default": "prod",
+  "profiles": {
+    "prod": {
+      "url": "http://yearning.example.com",
+      "username": "",
+      "password": "",
+      "ldap": false,
+      "prefer_sources": {
+        "prod": [],
+        "staging": []
+      }
+    }
+  }
+}
