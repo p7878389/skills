@@ -2,20 +2,23 @@
 """在主仓库检出中开始开发任务前，判断是否应改用 git worktree，并按约定创建。
 
 用法（在仓库内任意目录执行）：
-  worktree_advise.py check [--branch <任务分支>] [--base <基线>] [要修改的文件或目录 ...]
+  worktree_advise.py check [--branch <任务分支>] [--base <基线>] [--continue | --in-place] [要修改的文件或目录 ...]
   worktree_advise.py create --name <目录名> --branch <新分支> [--base <基线>]
   worktree_advise.py integrate [--target <集成分支>] [--expect-plan <摘要> --yes]
   worktree_advise.py link       # 在 linked worktree 中执行：链接主检出被忽略的 Agent 配置
 
-口径：简单修改在主检出原地做；只有本次要改的文件正被同时修改时才用 worktree。
+口径：开发新需求、新功能、独立修复一律在 worktree 中进行，不直接在主检出的当前分支上修改。
+只有两种情况原地改：--continue（继续主检出当前任务分支上已在进行的工作，且该分支不是基线/集成分支）和
+--in-place（用户明确要求原地修改）；原地改时仍检查文件重叠、其他会话和未完成的 git 操作
+（--continue 且没有其他会话时，主检出的未提交改动视为本任务自己的，不算重叠）。
 check 最后一行输出 VERDICT：
   IN_WORKTREE           已在 linked worktree，按 skill 第 1 节带入 Trellis、选索引
   NOT_APPLICABLE <原因>  非 git 仓库 / 子模块 / 裸仓库，不适用
   USE_EXISTING <路径>   任务分支已在某个 worktree 检出（git 不允许同一分支检出两次），直接进入该路径
-  WORKTREE_REQUIRED     有冲突（CONFLICT 行）：要改的文件与主检出未提交改动重叠 / 工作区被占用时需换分支 /
-                        有未完成的 merge、rebase 等 → 直接创建
-  PATHS_REQUIRED        主检出有其他会话或未提交改动，但没传要改的文件，无法判断是否重叠
-  STAY                  无冲突，原地修改（工作区被占用时只提交自己的文件）
+  WORKTREE_REQUIRED     REASON 行（新任务默认规则 / 当前分支是基线或集成分支）或 CONFLICT 行（要改的文件与主检出
+                        未提交改动重叠 / 工作区被占用时需换分支 / 有未完成的 merge、rebase）→ 直接创建
+  PATHS_REQUIRED        原地模式下主检出有其他会话或未提交改动，但没传要改的文件，无法判断是否重叠
+  STAY                  原地模式且无冲突，原地修改（工作区被占用时只提交自己的文件）
 
 基线约定：显式 --base 优先；否则从 main/master 切出（优先远端 origin/<分支>，create 时先 fetch）；
 仓库同时存在 js-main/js-master 时有两条产品线，必须询问用户（输出 BASE: ASK）。
@@ -52,6 +55,8 @@ INTEGRATION_LINES = {"beta": PRIMARY_BASES, "js-beta": ASK_BASES}
 # 主检出根目录下的 Agent 配置；.claude 单独按子项处理
 AGENT_CONFIG = (".codex", ".agents", ".cursor", ".opencode", ".gemini", "AGENTS.md", "CLAUDE.md", "GEMINI.md")
 CLAUDE_SKIP = {"worktrees"}
+# 基线/集成分支：不在其上直接开发
+BASELINE_BRANCHES = frozenset(PRIMARY_BASES + ASK_BASES + tuple(INTEGRATION_LINES) + ("develop", "dev"))
 ELK_WORKTREES = os.path.realpath(os.path.expanduser("~/.cache/elk-log-analysis/worktrees"))
 AGENT_EXES = {"claude", "codex"}
 IN_PROGRESS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "rebase-merge", "rebase-apply")
@@ -237,26 +242,42 @@ def cmd_check(args):
     base, note, candidates = resolve_base(args.base)
     print(f"BASE: {base} （{note}）" if base else f"BASE: ASK {','.join(candidates) or '(无候选)'} （{note}）")
 
-    # 口径：简单修改原地做；只有“本次要改的文件正被同时修改”才用 worktree。
-    # 换分支、未完成的 merge/rebase 会改动整个工作区，在工作区被占用时等同于全部文件重叠。
-    shared = bool(sessions) or bool(files)
-    conflicts = []
+    # 口径：新需求默认用 worktree，不在主检出当前分支上直接修改；继续当前任务分支（--continue）或用户明确要求
+    # （--in-place）才原地改，此时再按文件重叠判断。换分支、未完成的 merge/rebase 会改动整个工作区，
+    # 在工作区被占用时等同于全部文件重叠。
+    current = info["branch"]
+    if args.continue_task and args.branch and args.branch != current:
+        raise SystemExit("--continue 表示继续主检出当前分支上的工作，不能同时指定不同的 --branch")
+    cont = args.continue_task or bool(args.branch and args.branch == current)
+    # --continue 且没有其他会话：主检出的未提交改动视为本任务自己的，不按“他人改动”做重叠判断
+    own_changes = cont and sessions == []
+    shared = bool(sessions) or (bool(files) and not own_changes)
+    reasons, conflicts = [], []
+    if args.in_place:
+        print("NOTE: 用户明确要求原地修改，跳过“新需求默认使用 worktree”的规则"
+              + (f"（当前分支 {current} 是基线/集成分支，请确认用户知晓）" if current in BASELINE_BRANCHES else ""))
+    elif not cont:
+        reasons.append(f"新需求/新任务默认在 worktree 中开发，不直接修改主检出当前分支 {current or '(detached)'}")
+    elif current in BASELINE_BRANCHES or not current:
+        reasons.append(f"当前分支 {current or '(detached)'} 是基线/集成分支（或 detached），不能在其上直接开发")
     ops = [n for n in IN_PROGRESS if os.path.exists(os.path.join(info["git_dir"], n))]
     if ops:
         conflicts.append("主检出有未完成的 git 操作：" + ", ".join(ops) + "，此时修改会混入该操作")
     if args.branch and args.branch != info["branch"] and shared:
         conflicts.append(f"任务需要分支 {args.branch}（主检出在 {info['branch'] or '(detached)'}），"
                          "工作区被占用时原地切换会影响所有文件")
-    if args.paths:
+    if args.paths and not own_changes:
         overlap = relevant(files, args.paths, info["root"])
         print(f"paths: {', '.join(args.paths)}  overlap: {len(overlap)}"
               + (f"  {', '.join(overlap[:10])}{' ...' if len(overlap) > 10 else ''}" if overlap else ""))
         if overlap:
             conflicts.append(f"要修改的文件中有 {len(overlap)} 个正在被修改（未提交）：{', '.join(overlap[:5])}"
                              + (" ..." if len(overlap) > 5 else ""))
+    for r in reasons:
+        print(f"REASON: {r}")
     for c in conflicts:
         print(f"CONFLICT: {c}")
-    if conflicts:
+    if reasons or conflicts:
         print("VERDICT: WORKTREE_REQUIRED")
     elif shared and not args.paths:
         print("NOTE: 主检出有其他会话或未提交改动，需传入本次要修改的文件/目录判断是否重叠")
@@ -520,9 +541,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd")
     p = sub.add_parser("check")
-    p.add_argument("--branch", help="任务要在哪个分支上开发（新建或已有）；沿用主检出当前分支时不传")
+    p.add_argument("--branch", help="任务要在哪个分支上开发（新建或已有）；与主检出当前分支相同视为继续该任务")
     p.add_argument("--base", help="需求指定的基线分支/提交")
-    p.add_argument("paths", nargs="*", help="本次要修改的文件或目录（相对当前目录）")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--continue", dest="continue_task", action="store_true",
+                      help="继续主检出当前任务分支上已在进行的工作（当前分支是基线/集成分支时仍要求 worktree）")
+    mode.add_argument("--in-place", dest="in_place", action="store_true",
+                      help="用户明确要求在主检出原地修改，跳过新需求默认使用 worktree 的规则")
+    p.add_argument("paths", nargs="*", help="原地模式下本次要修改的文件或目录（相对当前目录），用于判断重叠")
     p = sub.add_parser("create")
     p.add_argument("--name", required=True, help=".claude/worktrees/ 下的目录名")
     p.add_argument("--branch", required=True, help="worktree 检出的分支，不存在时按基线新建")

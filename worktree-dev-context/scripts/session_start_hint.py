@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""SessionStart hook：会话目录是 git linked worktree 时，注入加载 worktree-dev-context skill 的提示。
+"""SessionStart hook：会话目录是 git linked worktree 时，注入加载 worktree-dev-context skill 的提示；
+是主仓库检出时，提醒新需求不要直接在当前分支修改、应先进入 worktree。
 
-非 worktree、非 git 目录或任何异常都静默退出，不影响会话启动。
+非 git 目录或任何异常都静默退出，不影响会话启动。
 """
 import json
 import os
@@ -39,7 +40,7 @@ def emit(context):
 
 
 def main_checkout_hint(cwd):
-    """主仓库检出：有其他会话、未提交改动或未完成的 git 操作时，提示改代码前检查文件是否重叠；无此情况时静默。"""
+    """主仓库检出：提醒新需求不要直接在当前分支修改，应创建并进入 worktree；非 git 仓库等不适用的情况静默。"""
     try:
         out = subprocess.run([sys.executable, ADVISE, "check"], cwd=cwd, capture_output=True, text=True,
                              timeout=8).stdout
@@ -47,21 +48,27 @@ def main_checkout_hint(cwd):
         return
     lines = out.splitlines()
     verdict = next((line.split(": ", 1)[1] for line in reversed(lines) if line.startswith("VERDICT: ")), "")
-    if verdict not in ("WORKTREE_REQUIRED", "PATHS_REQUIRED"):
+    if verdict != "WORKTREE_REQUIRED":
         return
+    branch = next((m.group(1) for m in (re.search(r"branch: (\S+)", x) for x in lines if x.startswith("checkout: ")) if m),
+                  "")
 
     def count(key):
         line = next((x for x in lines if x.startswith(key + ": ")), "")
         m = re.match(r"(\d+)", line[len(key) + 2:])
         return int(m.group(1)) if m else 0
 
-    facts = [f"另有 {count('other_sessions')} 个 Claude Code/Codex 会话在用主检出"] if count("other_sessions") else []
+    facts = [f"主仓库检出，分支 {branch}"] if branch else ["主仓库检出"]
+    if count("other_sessions"):
+        facts.append(f"另有 {count('other_sessions')} 个 Claude Code/Codex 会话在用主检出")
     if count("uncommitted"):
         facts.append(f"{count('uncommitted')} 个未提交改动")
-    facts += [x.split(": ", 1)[1] for x in lines if x.startswith("CONFLICT: ")]
-    emit("[worktree-dev-context] 当前会话在主仓库检出：" + "；".join(facts) + "。\n"
-         "- 简单修改原地做，只有要改的文件正被同时修改时才用 worktree：改代码前加载 `worktree-dev-context` skill，"
-         f"定位到要改的文件后运行 `python3 {S}/worktree_advise.py check <文件或目录...>`，按 VERDICT 处理；只读任务跳过。")
+    facts += [x.split(": ", 1)[1] for x in lines if x.startswith("CONFLICT: ") or (x.startswith("REASON: ") and "基线" in x)]
+    emit("[worktree-dev-context] 当前会话在" + "；".join(facts) + "。\n"
+         "- 开发新需求、新功能、独立修复时，不要直接在当前分支上修改：改代码前加载 `worktree-dev-context` skill，"
+         f"运行 `python3 {S}/worktree_advise.py check --branch <任务分支>`，`WORKTREE_REQUIRED` 时直接创建并进入 worktree，不询问。\n"
+         f"- 例外：继续当前任务分支上已在进行的工作用 `check --continue <文件...>`；用户明确要求“就在这里改/不用 worktree”用 "
+         "`check --in-place <文件...>`。只读任务（问答、查日志、审查、调研）跳过。")
 
 
 def link_agent_config(root):
