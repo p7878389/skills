@@ -1,6 +1,6 @@
 ---
 name: worktree-dev-context
-description: git worktree 开发全流程，Claude Code 与 Codex 通用：在主仓库检出中修改代码前，检查要改的文件是否正被同时修改，重叠时才改用 worktree 并按约定创建（简单修改原地做）；在 linked worktree（如 Claude Code 的 .claude/worktrees/*、Codex 托管的 worktree、git worktree add 出来的目录）中带入并回合被 .gitignore 忽略的 Trellis（.trellis）任务与 spec，判断并准备与 worktree 分支一致的 GitNexus 索引，按 feature/、fix/、hotfix/ 规范命名分支；需要集成或部署时，预演并核对目标后一次确认收尾；普通提交不自动进入部署流程。主仓库检出中开工前、第一次在 worktree 中读写代码前、代码提交后汇报完成前、删除 worktree 前都要用。 Git worktree workflow for Claude Code and Codex - switch to a worktree only when target files are being edited concurrently; in a linked worktree, sync git-ignored Trellis (.trellis) tasks and specs, prepare a matching GitNexus index, and use feature/, fix/, hotfix/ branch names; dry-run and confirm once before integration or deployment. Use before work in the main checkout, before first code access in a worktree, after committing, and before removing a worktree.
+description: git worktree 开发全流程，Claude Code 与 Codex 通用：开发新需求、新功能、独立修复时一律使用 worktree，不直接在主检出的当前分支上修改（仅继续当前任务分支上已在进行的工作，或用户明确要求原地修改时例外），并按约定创建；在 linked worktree（Claude Code、Codex 托管或 git worktree add 创建的）中带入并回合被 .gitignore 忽略的 Trellis（.trellis）任务与 spec，准备与 worktree 分支一致的 GitNexus 索引，按 feature/、fix/、hotfix/ 规范命名分支；需要集成或部署时，预演并核对目标后一次确认收尾；普通提交不自动进入部署流程。主仓库检出中开发新需求前、第一次在 worktree 中读写代码前、代码提交后汇报完成前、删除 worktree 前都要用。 Git worktree workflow for Claude Code and Codex - develop every new requirement, feature or standalone fix in a worktree, never directly on the current branch of the main checkout (exceptions are continuing in-progress work on the current task branch or an explicit request to stay in place); sync git-ignored Trellis tasks and specs, prepare a matching GitNexus index, name branches feature/, fix/ or hotfix/; dry-run and confirm once before integration or deployment. Use before starting a new requirement in the main checkout, before first code access in a worktree, after committing, and before removing a worktree.
 ---
 
 # Worktree 开发上下文
@@ -29,35 +29,45 @@ GitNexus 分工：日志排查与已推送代码的调用链优先用远程 `git
 
 **脚本一律写字面路径** `python3 ~/.claude/skills/worktree-dev-context/scripts/<脚本>.py ...`，不要写 `S=...; python3 $S/...`：Claude Code 隔离在 worktree 的会话会拒绝执行带运行时变量的命令（`runs python with a value computed at runtime (the variable S)`）。同理，多条命令拆开写，不要把 `cd`、变量和 git 拼进一条复杂命令。
 
-用户级 SessionStart hook（Claude Code：`~/.claude/settings.json`；Codex：`~/.codex/hooks.json`）都会运行 `~/.claude/skills/worktree-dev-context/scripts/session_start_hint.py`：会话目录是 linked worktree 时先自动执行 `worktree_advise.py link`，再注入 `[worktree-dev-context]` 提示（含 Trellis 是否已带入、独立索引名称、新链接的配置）；是主仓库检出且有其他会话、未提交改动或未完成的 git 操作时，注入“改代码前检查文件是否重叠”的提示；其余情况静默。两者输入输出格式相同（`cwd` → `hookSpecificOutput.additionalContext`）。本 skill 由 cc-switch 管理，实体在 `~/.cc-switch/skills/worktree-dev-context`，`~/.claude/skills/` 与 `~/.codex/skills/` 下都是指向它的软链；修改只改这一份，不要在软链位置放实体目录。
+用户级 SessionStart hook（Claude Code：`~/.claude/settings.json`；Codex：`~/.codex/hooks.json`）都会运行 `~/.claude/skills/worktree-dev-context/scripts/session_start_hint.py`：会话目录是 linked worktree 时先自动执行 `worktree_advise.py link`，再注入 `[worktree-dev-context]` 提示（含 Trellis 是否已带入、独立索引名称、新链接的配置）；是主仓库检出时注入“新需求不要直接在当前分支修改，先 `check` 并进入 worktree”的提示；非 git 目录等不适用的情况静默。两者输入输出格式相同（`cwd` → `hookSpecificOutput.additionalContext`）。本 skill 由 cc-switch 管理，实体在 `~/.cc-switch/skills/worktree-dev-context`，`~/.claude/skills/` 与 `~/.codex/skills/` 下都是指向它的软链；修改只改这一份，不要在软链位置放实体目录。
 
-## 0. 是否需要 worktree（主仓库检出中开工前）
+## 0. 开发新需求：先进入 worktree（主仓库检出中开工前）
 
-**口径：简单修改在主检出原地做，只有本次要改的文件正被同时修改时才用 worktree。** 不按任务大小、是否有其他会话来决定；其他会话或未提交改动只要不和本次要改的文件重叠，就原地改。
+**口径：开发新需求、新功能、独立修复一律在 worktree 中进行，不直接在主检出的当前分支上修改。** 主检出保持干净，方便随时切换、对照和并行处理其他任务；基线/集成分支（main、master、beta、js-main、js-master、js-beta、develop、dev）上永远不直接开发。
 
-只在主仓库检出（非 linked worktree）中、**修改代码前**判断；只读任务（问答、查日志、代码审查、分析调研）跳过。用户明确说“就在这里改/不用 worktree”时照做；明确要求 worktree 时直接创建。
+只在主仓库检出（非 linked worktree）中、**修改代码前**判断；只读任务（问答、查日志、代码审查、分析调研）跳过。
 
-1. **定任务分支**：继续主检出当前分支上的工作（包括处理它现有的未提交改动）不传 `--branch`；新需求、独立修复需要新分支时按下方“分支命名”规范命名，传 `--branch`。
+**可以原地修改的例外**（只有这两种）：
+- **继续进行中的任务**：当前分支就是本任务的 `feature/`、`fix/`、`hotfix/` 分支，且用户让你接着改它（包括它现有的未提交改动）；当前分支是基线/集成分支时不算，仍要建 worktree。
+- **用户明确要求**“就在这里改 / 不用 worktree”。用户明确要求 worktree 时直接创建。
+
+不因“改动很小”“只改一个文件”而原地改：小改动也是新任务，照样走 worktree。
+
+1. **判断任务性质并定任务分支**：
+   - 新需求、新功能、独立修复：需要新分支，按下方“分支命名”规范命名，传 `--branch`；
+   - 接着改主检出当前任务分支上的工作：不传 `--branch`（或传当前分支名），走例外的 `--continue`。
 
    **分支命名**（新建与改名都适用）：`<类型>/<简述>`，不带 hash、日期、随机后缀。
    - 需求、功能、优化：`feature/`，如 `feature/ZHENSUO-2833`、`feature/showBindOrUnbind支持铭牌号`；
    - bug：常规修复用 `fix/`，线上紧急修复（直接基于 master 发版）用 `hotfix/`，如 `hotfix/BASE-2429`；
    - 有工单号优先用工单号，没有就用简短的中文或英文描述，与仓库已有分支风格保持一致（可先看 `git branch -a` 与 `git log --merges` 中的分支名）。
-2. **定位要改的文件**：先只读定位代码（GitNexus 查询、读源码），确定本次要修改/新增的文件或目录。
-3. **检查重叠**：`python3 ~/.claude/skills/worktree-dev-context/scripts/worktree_advise.py check [--branch <任务分支>] [--base <需求指定的基线>] <要改的文件或目录...>`，按最后一行 `VERDICT` 处理：
-   - `STAY`：原地修改。主检出有其他会话或未提交改动时（输出 `NOTE`），提交只 `git add <自己改的文件>`，不用 `git add -A` / `commit -a`；提交前带同样路径再 `check` 一次，期间被别人改到同一文件就停下告知用户。
-   - `WORKTREE_REQUIRED`（`CONFLICT` 行）：要改的文件与主检出未提交改动重叠、工作区被占用时需要换分支、或有未完成的 merge/rebase。例外：重叠的正是本任务自己在继续的改动（如用户让你接着改这些未提交文件）时原地改；否则**不询问**，直接创建并用一句话告知理由（引用 `CONFLICT` 行）。
-   - `PATHS_REQUIRED`：没传要改的文件；补上路径再 `check`。
+2. **检查**：`python3 ~/.claude/skills/worktree-dev-context/scripts/worktree_advise.py check --branch <任务分支> [--base <需求指定的基线>]`。新任务不需要先定位要改的文件，直接得到 `WORKTREE_REQUIRED`（输出 `REASON` 行）。按最后一行 `VERDICT` 处理：
+   - `WORKTREE_REQUIRED`：**不询问**，直接创建并用一句话告知理由（引用 `REASON`/`CONFLICT` 行）。
    - `USE_EXISTING <路径>`：任务分支已在该 worktree 检出，直接进入，不新建。
    - `IN_WORKTREE`：跳到第 1 节；`NOT_APPLICABLE`：跳过本 skill 的 worktree 部分。
-   - 工作区未被占用（无其他会话、无未提交改动）时，需要新分支就在主检出 `git switch -c <分支> <基线>` 原地切换。
-   - 开发中途发现还要改别的文件：带新路径再 `check`，出现 `WORKTREE_REQUIRED` 时停下告知用户，由用户决定是否把已做的改动挪到 worktree。
-4. **基线**：需求指定的优先；否则从 `main`/`master` 切出（`create` 会先 fetch，用 `origin/<分支>` 最新）。`BASE: ASK`（仓库存在 `js-main`/`js-master` 两条产品线，或没有 main/master）时，即使是 `WORKTREE_REQUIRED` 也要先问用户基线。
-5. **创建**：`python3 ~/.claude/skills/worktree-dev-context/scripts/worktree_advise.py create --name <目录名> --branch <分支> [--base <基线>]`（目录名用分支名把 `/` 换成 `-`）。脚本在 `<主仓库>/.claude/worktrees/<目录名>` 建 worktree，新分支不跟踪基线（`--no-track`，避免 pull/push 误作用到 main），目录未被忽略时写入本地 `info/exclude`，并自动链接 Agent 配置（输出 `LINKED`）。
+   - 例外情形才会出现 `STAY` / `PATHS_REQUIRED`：
+     - 继续进行中的任务：`check --continue <要改的文件或目录...>`。当前分支是基线/集成分支时仍返回 `WORKTREE_REQUIRED`。
+     - 用户明确要求原地改：`check --in-place <要改的文件或目录...>`（在基线/集成分支上会提示确认用户知晓）。
+     - `STAY`：原地修改。主检出有其他会话或未提交改动时（输出 `NOTE`），提交只 `git add <自己改的文件>`，不用 `git add -A` / `commit -a`；提交前带同样路径再 `check` 一次，期间被别人改到同一文件就停下告知用户。
+     - `PATHS_REQUIRED`：没传要改的文件；补上路径再 `check`。
+     - `WORKTREE_REQUIRED`（`CONFLICT` 行）：要改的文件与主检出未提交改动重叠、工作区被占用时需换分支、或有未完成的 merge/rebase，直接创建 worktree。`--continue` 且没有其他会话时，主检出的未提交改动视为本任务自己的，不算重叠。
+     - 原地开发中途发现还要改别的文件：带新路径再 `check`，出现 `WORKTREE_REQUIRED` 时停下告知用户，由用户决定是否把已做的改动挪到 worktree。
+3. **基线**：需求指定的优先；否则从 `main`/`master` 切出（`create` 会先 fetch，用 `origin/<分支>` 最新）。`BASE: ASK`（仓库存在 `js-main`/`js-master` 两条产品线，或没有 main/master）时，先问用户基线再创建。
+4. **创建**：`python3 ~/.claude/skills/worktree-dev-context/scripts/worktree_advise.py create --name <目录名> --branch <分支> [--base <基线>]`（目录名用分支名把 `/` 换成 `-`）。脚本在 `<主仓库>/.claude/worktrees/<目录名>` 建 worktree，新分支不跟踪基线（`--no-track`，避免 pull/push 误作用到 main），目录未被忽略时写入本地 `info/exclude`，并自动链接 Agent 配置（输出 `LINKED`）。
    - Claude Code：用 `EnterWorktree(path=<WORKTREE>)` 切入；不要用 `EnterWorktree(name=…)` 新建，它的基线不受上述约定控制。
    - Codex：会话目录无法切换，之后所有命令的 workdir 设为 worktree 路径、文件用绝对路径；改动较大时也可建议用户在该目录开新会话。
    - 主检出的未提交改动不会带到新 worktree；若用户要带过去，先征得同意再处理。
-6. 进入 worktree 后立即执行第 1 节。
+5. 进入 worktree 后立即执行第 1 节。
 
 ## 1. 开工前（第一次读写代码前）
 

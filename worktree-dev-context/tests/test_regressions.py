@@ -282,4 +282,107 @@ class LinkAgentConfig(unittest.TestCase):
         self.assertEqual(pathlib.Path(wt, '.claude', 'settings.json').read_text(), '{"own": 1}\n')
         self.assertTrue(os.path.islink(os.path.join(wt, '.claude', 'hooks')))
 
+class CheckPolicy(unittest.TestCase):
+    """新需求默认进 worktree；只有 --continue（非基线分支）和 --in-place 才允许在主检出原地改。"""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(os.chdir, os.getcwd())
+        self.repo = os.path.realpath(os.path.join(self.tmp.name, 'repo'))
+        os.makedirs(self.repo)
+        self.g('init', '-q', '-b', 'main')
+        for k, v in (('user.name', 't'), ('user.email', 't@t'), ('commit.gpgsign', 'false')):
+            self.g('config', k, v)
+        pathlib.Path(self.repo, 'a.txt').write_text('a\n')
+        pathlib.Path(self.repo, 'b.txt').write_text('b\n')
+        self.g('add', '.')
+        self.g('commit', '-qm', 'init')
+        os.chdir(self.repo)
+
+    def g(self, *a):
+        return subprocess.run(['git', '-C', self.repo, *a], check=True, capture_output=True, text=True).stdout
+
+    def check(self, branch=None, cont=False, in_place=False, paths=()):
+        import argparse
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), patch.object(wa, 'other_sessions', return_value=[]):
+            wa.cmd_check(argparse.Namespace(branch=branch, base=None, continue_task=cont, in_place=in_place,
+                                            paths=list(paths)))
+        lines = out.getvalue().splitlines()
+        return lines[-1], out.getvalue()
+
+    def test_new_task_on_baseline_requires_worktree_even_for_tiny_change(self):
+        verdict, text = self.check(branch='feature/x', paths=['a.txt'])
+        self.assertEqual(verdict, 'VERDICT: WORKTREE_REQUIRED')
+        self.assertIn('REASON: 新需求/新任务默认在 worktree 中开发', text)
+
+    def test_new_task_on_task_branch_still_requires_worktree(self):
+        self.g('switch', '-qc', 'feature/old')
+        verdict, text = self.check(branch='feature/new')
+        self.assertEqual(verdict, 'VERDICT: WORKTREE_REQUIRED')
+        self.assertIn('REASON:', text)
+        verdict, _ = self.check()
+        self.assertEqual(verdict, 'VERDICT: WORKTREE_REQUIRED')
+
+    def test_continue_on_baseline_branch_is_refused(self):
+        for name in ('main', 'beta', 'master'):
+            self.g('switch', '-qC', name)
+            verdict, text = self.check(cont=True, paths=['a.txt'])
+            self.assertEqual(verdict, 'VERDICT: WORKTREE_REQUIRED', name)
+            self.assertIn('基线/集成分支', text)
+
+    def test_continue_on_task_branch_stays_and_own_uncommitted_changes_are_not_conflicts(self):
+        self.g('switch', '-qc', 'feature/old')
+        verdict, _ = self.check(cont=True, paths=['a.txt'])
+        self.assertEqual(verdict, 'VERDICT: STAY')
+        pathlib.Path(self.repo, 'a.txt').write_text('changed\n')
+        verdict, _ = self.check(cont=True, paths=['a.txt'])
+        self.assertEqual(verdict, 'VERDICT: STAY')
+        verdict, _ = self.check(cont=True)
+        self.assertEqual(verdict, 'VERDICT: STAY')
+
+    def test_branch_equal_to_current_task_branch_counts_as_continue(self):
+        self.g('switch', '-qc', 'feature/old')
+        verdict, _ = self.check(branch='feature/old', paths=['a.txt'])
+        self.assertEqual(verdict, 'VERDICT: STAY')
+
+    def test_continue_with_other_session_still_checks_overlap(self):
+        import argparse
+        self.g('switch', '-qc', 'feature/old')
+        pathlib.Path(self.repo, 'a.txt').write_text('changed\n')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), patch.object(wa, 'other_sessions', return_value=[123]):
+            wa.cmd_check(argparse.Namespace(branch=None, base=None, continue_task=True, in_place=False, paths=['a.txt']))
+        self.assertTrue(out.getvalue().strip().endswith('VERDICT: WORKTREE_REQUIRED'))
+        self.assertIn('CONFLICT:', out.getvalue())
+
+    def test_continue_with_different_branch_is_an_error(self):
+        self.g('switch', '-qc', 'feature/old')
+        with self.assertRaises(SystemExit):
+            self.check(branch='feature/other', cont=True)
+
+    def test_in_place_allowed_but_overlap_still_checked(self):
+        verdict, text = self.check(in_place=True, paths=['a.txt'])
+        self.assertEqual(verdict, 'VERDICT: STAY')
+        self.assertIn('NOTE: 用户明确要求原地修改', text)
+        self.assertIn('基线/集成分支', text)
+        pathlib.Path(self.repo, 'a.txt').write_text('changed\n')
+        verdict, text = self.check(in_place=True, paths=['a.txt'])
+        self.assertEqual(verdict, 'VERDICT: WORKTREE_REQUIRED')
+        self.assertIn('CONFLICT:', text)
+        verdict, _ = self.check(in_place=True, paths=['b.txt'])
+        self.assertEqual(verdict, 'VERDICT: STAY')
+
+    def test_session_hint_reminds_on_main_checkout_and_stays_silent_outside_git(self):
+        hint = pathlib.Path(__file__).resolve().parents[1] / 'scripts' / 'session_start_hint.py'
+        res = subprocess.run([sys.executable, str(hint)], input='{"cwd": "%s"}' % self.repo, capture_output=True, text=True)
+        ctx = __import__('json').loads(res.stdout)['hookSpecificOutput']['additionalContext']
+        self.assertIn('主仓库检出，分支 main', ctx)
+        self.assertIn('不要直接在当前分支上修改', ctx)
+        self.assertIn('check --continue', ctx)
+        self.assertIn('check --in-place', ctx)
+        self.assertNotIn('$S', ctx)
+        res = subprocess.run([sys.executable, str(hint)], input='{"cwd": "%s"}' % self.tmp.name, capture_output=True, text=True)
+        self.assertEqual(res.stdout.strip(), '')
+
 if __name__ == '__main__': unittest.main()

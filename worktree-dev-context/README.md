@@ -1,10 +1,12 @@
 # worktree-dev-context
 
-按文件重叠判断是否需要 Git worktree；同步被忽略的 Trellis 上下文、选择 GitNexus 索引，并支持带预演校验的集成分支合并。
+开发新需求、新功能、独立修复时一律使用 Git worktree，不直接在主检出的当前分支上修改；同步被忽略的 Trellis 上下文、选择 GitNexus 索引，并支持带预演校验的集成分支合并。
 
 - [技能说明](SKILL.md)
 - [脚本](scripts/)
 - [回归测试](tests/test_regressions.py)
+
+原地修改只有两种例外：继续主检出当前任务分支上已在进行的工作（`check --continue`），或用户明确要求原地改（`check --in-place`）；在 main、master、beta 等基线/集成分支上始终要求 worktree。
 
 本技能保留个人团队约定：默认主线为 main/master，集成分支为 beta/js-beta；多产品线必须明确指定目标。实际合并会推送远端，执行前须检查预演并提供 `--target`、`--expect-plan` 和 `--yes`。
 
