@@ -7,8 +7,9 @@
   worktree_advise.py integrate [--target <集成分支>] [--expect-plan <摘要> --yes]
   worktree_advise.py link       # 在 linked worktree 中执行：链接主检出被忽略的 Agent 配置
 
-口径：开发新需求、新功能、独立修复一律在 worktree 中进行，不直接在主检出的当前分支上修改。
-只有两种情况原地改：--continue（继续主检出当前任务分支上已在进行的工作，且该分支不是基线/集成分支）和
+口径：开发新需求、新功能、修复一律在 worktree 中进行，不直接在主检出的当前分支上修改。是新需求还是某分支上的续改由
+agent 结合语义与 Git 证据判断（见 skill 第 0.1 节），脚本不理解用户输入，也不会因 --branch 恰好等于当前分支就当作续改。
+只有两种情况原地改：--continue（agent 已确认是续改主检出当前任务分支上的工作，且该分支不是基线/集成分支）和
 --in-place（用户明确要求原地修改）；原地改时仍检查文件重叠、其他会话和未完成的 git 操作
 （--continue 且没有其他会话时，主检出的未提交改动视为本任务自己的，不算重叠）。
 check 最后一行输出 VERDICT：
@@ -248,7 +249,7 @@ def cmd_check(args):
     current = info["branch"]
     if args.continue_task and args.branch and args.branch != current:
         raise SystemExit("--continue 表示继续主检出当前分支上的工作，不能同时指定不同的 --branch")
-    cont = args.continue_task or bool(args.branch and args.branch == current)
+    cont = args.continue_task
     # --continue 且没有其他会话：主检出的未提交改动视为本任务自己的，不按“他人改动”做重叠判断
     own_changes = cont and sessions == []
     shared = bool(sessions) or (bool(files) and not own_changes)
@@ -541,11 +542,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd")
     p = sub.add_parser("check")
-    p.add_argument("--branch", help="任务要在哪个分支上开发（新建或已有）；与主检出当前分支相同视为继续该任务")
+    p.add_argument("--branch", help="任务要在哪个分支上开发（新建或已有）；仅凭它与当前分支相同不会被当作续改")
     p.add_argument("--base", help="需求指定的基线分支/提交")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--continue", dest="continue_task", action="store_true",
-                      help="继续主检出当前任务分支上已在进行的工作（当前分支是基线/集成分支时仍要求 worktree）")
+                      help="已确认是续改主检出当前任务分支上的工作（当前分支是基线/集成分支时仍要求 worktree）")
     mode.add_argument("--in-place", dest="in_place", action="store_true",
                       help="用户明确要求在主检出原地修改，跳过新需求默认使用 worktree 的规则")
     p.add_argument("paths", nargs="*", help="原地模式下本次要修改的文件或目录（相对当前目录），用于判断重叠")

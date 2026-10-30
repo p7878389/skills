@@ -65,9 +65,9 @@ def main_checkout_hint(cwd):
         facts.append(f"{count('uncommitted')} 个未提交改动")
     facts += [x.split(": ", 1)[1] for x in lines if x.startswith("CONFLICT: ") or (x.startswith("REASON: ") and "基线" in x)]
     emit("[worktree-dev-context] 当前会话在" + "；".join(facts) + "。\n"
-         "- 开发新需求、新功能、独立修复时，不要直接在当前分支上修改：改代码前加载 `worktree-dev-context` skill，"
-         f"运行 `python3 {S}/worktree_advise.py check --branch <任务分支>`，`WORKTREE_REQUIRED` 时直接创建并进入 worktree，不询问。\n"
-         f"- 例外：继续当前任务分支上已在进行的工作用 `check --continue <文件...>`；用户明确要求“就在这里改/不用 worktree”用 "
+         "- 开发新需求、修复时，不要直接在当前分支上修改：改代码前加载 `worktree-dev-context` skill，先按其第 0.1 节判断是新需求还是某分支上的续改。"
+         f"续改复用相关任务分支的 worktree；新需求运行 `python3 {S}/worktree_advise.py check --branch <任务分支>`，`WORKTREE_REQUIRED` 时直接创建并进入 worktree，不询问。\n"
+         f"- 例外：续改的分支恰好在主检出时用 `check --continue <文件...>`；用户明确要求“就在这里改/不用 worktree”用 "
          "`check --in-place <文件...>`。只读任务（问答、查日志、审查、调研）跳过。")
 
 

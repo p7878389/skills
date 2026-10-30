@@ -1,12 +1,14 @@
 # worktree-dev-context
 
-开发新需求、新功能、独立修复时一律使用 Git worktree，不直接在主检出的当前分支上修改；同步被忽略的 Trellis 上下文、选择 GitNexus 索引，并支持带预演校验的集成分支合并。
+开发新需求、新功能、修复时一律使用 Git worktree，不直接在主检出的当前分支上修改；同步被忽略的 Trellis 上下文、选择 GitNexus 索引，并支持带预演校验的集成分支合并。
+
+每次开发前结合用户输入、会话上下文、各检出的最近切换记录和提交内容判断任务关联。续改选择相关任务最新且包含已有成果的开发分支，优先复用其 worktree；时间最近本身不代表相关。独立新任务另建分支和 worktree，当前已在 worktree 时也不混入无关任务。具体判断与命令见技能说明第 0 节。
 
 - [技能说明](SKILL.md)
 - [脚本](scripts/)
 - [回归测试](tests/test_regressions.py)
 
-原地修改只有两种例外：继续主检出当前任务分支上已在进行的工作（`check --continue`），或用户明确要求原地改（`check --in-place`）；在 main、master、beta 等基线/集成分支上始终要求 worktree。
+原地修改只有两种例外：确认是续改主检出当前任务分支上的工作（`check --continue`），或用户明确要求原地改（`check --in-place`）；在 main、master、beta 等基线/集成分支上始终要求 worktree。
 
 本技能保留个人团队约定：默认主线为 main/master，集成分支为 beta/js-beta；多产品线必须明确指定目标。实际合并会推送远端，执行前须检查预演并提供 `--target`、`--expect-plan` 和 `--yes`。
 

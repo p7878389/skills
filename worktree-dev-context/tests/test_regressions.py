@@ -341,9 +341,13 @@ class CheckPolicy(unittest.TestCase):
         verdict, _ = self.check(cont=True)
         self.assertEqual(verdict, 'VERDICT: STAY')
 
-    def test_branch_equal_to_current_task_branch_counts_as_continue(self):
+    def test_branch_equal_to_current_branch_is_not_auto_continue(self):
+        # 是新需求还是续改由 agent 判断，不能仅凭 --branch 恰好等于当前分支就放行
         self.g('switch', '-qc', 'feature/old')
-        verdict, _ = self.check(branch='feature/old', paths=['a.txt'])
+        verdict, text = self.check(branch='feature/old', paths=['a.txt'])
+        self.assertEqual(verdict, 'VERDICT: WORKTREE_REQUIRED')
+        self.assertIn('REASON: 新需求/新任务默认在 worktree 中开发', text)
+        verdict, _ = self.check(branch='feature/old', cont=True, paths=['a.txt'])
         self.assertEqual(verdict, 'VERDICT: STAY')
 
     def test_continue_with_other_session_still_checks_overlap(self):
@@ -379,6 +383,7 @@ class CheckPolicy(unittest.TestCase):
         ctx = __import__('json').loads(res.stdout)['hookSpecificOutput']['additionalContext']
         self.assertIn('主仓库检出，分支 main', ctx)
         self.assertIn('不要直接在当前分支上修改', ctx)
+        self.assertIn('续改', ctx)
         self.assertIn('check --continue', ctx)
         self.assertIn('check --in-place', ctx)
         self.assertNotIn('$S', ctx)
